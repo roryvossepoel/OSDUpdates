@@ -46,3 +46,13 @@ Replace paths and MSU filename as appropriate. `-WhatIf` allows reviewing the in
 - Pester structure tests do not validate WinPE storage or DISM behavior.
 
 Development roadmap: reliable update source/catalog selection, strong authenticity validation, caching, richer applicability checks, integration tests and eventual PowerShell Gallery publication.
+
+## Validation notes (2026-10-16)
+
+A manual proof of concept successfully serviced Windows 11 26H2 from build 26300.9457 to 26300.9711 with DISM, using KB5043080 and KB5127648, followed by a separately executed BCDBoot command. This **does not** yet validate the current module end-to-end.
+
+For the next WinPE run, record `DurationSeconds`, DISM exit status, boot outcome, OSDApps completion and Autopilot completion. A reported update duration cannot be directly compared against a live Windows Update cycle unless download, scan, installation and reboot times are measured on equivalent hardware.
+
+## Safety
+
+The module refuses `Install-OSDUpdate` unless a WinPE boot marker is found. This is a guardrail, not a security boundary. Always verify the selected target volume before servicing. A SHA-256 listing is an integrity fingerprint, **not** verification that an MSU was issued by Microsoft or applies to the target image. Automated Microsoft signature verification and complete applicability checking remain outstanding.
