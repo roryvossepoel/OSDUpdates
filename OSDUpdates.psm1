@@ -13,13 +13,20 @@ function Get-OSDUpdateTarget {
         if ($candidates.Count -ne 1) { throw "Expected one offline Windows volume; found $($candidates.Count). Specify -WindowsPath." }
         $WindowsPath = $candidates[0]
     }
-    $rootPath = [System.IO.Path]::GetPathRoot((Join-Path $WindowsPath 'Windows'))
+    $resolvedPath = [System.IO.Path]::GetFullPath($WindowsPath)
+    if ([System.IO.Path]::GetFileName($resolvedPath.TrimEnd('\')) -ieq 'Windows') {
+        $resolvedPath = [System.IO.Path]::GetPathRoot($resolvedPath)
+    }
+    $rootPath = [System.IO.Path]::GetPathRoot($resolvedPath)
     $windowsDir = Join-Path $rootPath 'Windows'
     if (-not (Test-Path -LiteralPath (Join-Path $windowsDir 'System32\Config\SYSTEM'))) {
         throw "No offline Windows installation found at $windowsDir"
     }
     $letter = $rootPath.Substring(0,1)
     if ($letter -eq 'X') { throw 'WinPE X: cannot be a servicing target.' }
+    if ($env:SystemDrive -and $rootPath.TrimEnd('\') -ieq $env:SystemDrive -and -not (Test-Path 'X:\Windows\System32\startnet.cmd')) {
+        throw 'Refusing to service the running Windows installation. Boot into WinPE.'
+    }
     $partition = Get-Partition -DriveLetter $letter -ErrorAction Stop
     $disk = Get-Disk -Number $partition.DiskNumber -ErrorAction Stop
     if ($disk.PartitionStyle -ne 'GPT') { throw 'Only GPT/UEFI disks are supported by this initial version.' }
@@ -63,11 +70,15 @@ function Install-OSDUpdate {
     $updates = @(Test-OSDUpdateCache -UpdatePath $UpdatePath)
     $selected = @($updates | Where-Object Name -eq $TargetMsu)
     if ($selected.Count -ne 1) { throw "Target MSU '$TargetMsu' not found exactly once in $UpdatePath." }
+    if (-not (Test-Path -LiteralPath 'X:\Windows\System32\startnet.cmd')) {
+        throw 'Install-OSDUpdate requires WinPE. Refusing to perform offline servicing in a running Windows session.'
+    }
     $imageRoot = $target.WindowsRoot
     $logRoot = Join-Path $imageRoot 'OSDUpdates-Logs'
     $scratch = Join-Path $logRoot 'Scratch'
     if (-not $PSCmdlet.ShouldProcess($imageRoot, "Install $TargetMsu and update UEFI boot files")) { return }
     New-Item -ItemType Directory -Path $scratch -Force -ErrorAction Stop | Out-Null
+    $started = Get-Date
     $log = Join-Path $logRoot 'DISM.log'
     $dismArgs = @(
         "/Image:$imageRoot",'/Add-Package',
@@ -84,7 +95,7 @@ function Install-OSDUpdate {
         $efiLetter = $part.DriveLetter
         if (-not $efiLetter) {
             $used = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [string]$_.DriveLetter })
-            $efiLetter = @('S','T','U','V','Y','Z' | Where-Object { $_ -notin $used }) | Select-Object -First 1
+            $efiLetter = @('S','T','U','V','Y','Z' | Where-Object { $_ -notin $used } | Select-Object -First 1)[0]
             if (-not $efiLetter) { throw 'No safe temporary EFI drive letter available.' }
             Set-Partition -DiskNumber $target.DiskNumber -PartitionNumber $part.PartitionNumber -NewDriveLetter $efiLetter -ErrorAction Stop
             $createdAccessPath = $true
@@ -105,6 +116,7 @@ function Install-OSDUpdate {
         DismLog = $log
         BootFilesUpdated = (-not $SkipBootFiles)
         RebootPerformed = $false
+        DurationSeconds = [math]::Round(((Get-Date) - $started).TotalSeconds,1)
     }
 }
 
