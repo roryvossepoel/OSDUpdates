@@ -31,9 +31,4 @@ Describe 'OSDUpdates module structure' {
         $records[0].SHA256 | Should -Be (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     }
 
-    It 'does not attempt installation in a non-WinPE environment without an explicit target' {
-        # Requires mockable storage detection in a future iteration.
-        # Current tests intentionally avoid manipulating disks or invoking DISM.
-        $true | Should -BeTrue
-    }
 }
